@@ -116,7 +116,7 @@ O menu de navegação é fixado na base da tela, ocupa toda a largura e exibe **
 - Produtos não são excluídos fisicamente para preservar histórico de pedidos; `active = false` os remove do cardápio operacional.
 - Categoria é um campo de texto livre — não há tabela separada de categorias.
 - Funcionários têm acesso de leitura ao cardápio; criação e edição são restritas a donos.
-- O preço de um produto pode ser alterado a qualquer momento sem afetar pedidos já registrados (ver RN-03).
+- O preço de um produto pode ser alterado a qualquer momento sem afetar pedidos já registrados.
 
 ---
 
@@ -133,6 +133,8 @@ O menu de navegação é fixado na base da tela, ocupa toda a largura e exibe **
 - Cada pedido exibe: número sequencial do dia, tipo (Delivery / Retirada / Local), total parcial, status.
 - Toque no card do pedido abre o detalhe/edição.
 
+> **Fluxo de criação:** ao tocar em "+ Novo Pedido", o app exibe um modal simples de seleção de tipo com três opções: **Delivery**, **Retirada** e **Local**. Após a seleção, o app dispara `POST /api/orders` com o `type` já definido, cria o registro com `status = 'aberto'` no banco e redireciona para `/pedidos/[id]` do pedido recém-criado. O modal garante que `type` nunca chega ao servidor como nulo. Não existe rota de página `/pedidos/novo`.
+
 ##### 4.1.2 Criar/Editar Pedido (`/pedidos/[id]`)
 
 - **Tipo do pedido:** seleção visual entre "Delivery", "Retirada" e "Local" (botões grandes com ícone).
@@ -147,12 +149,12 @@ O menu de navegação é fixado na base da tela, ocupa toda a largura e exibe **
 #### Regras de Negócio — Módulo 1
 
 - Um pedido só pode ser fechado quando o cliente for completamente atendido **e** o pagamento for confirmado (ao menos 1 item + forma de pagamento selecionada).
-- Um pedido só pode ser fechado se a forma de pagamento estiver selecionada.
 - O total do pedido é calculado no cliente (soma de `quantity × unit_price`) e validado novamente no servidor antes de persistir.
 - O `unit_price` dos itens é capturado no momento do pedido (não muda com alterações futuras no cardápio).
 - Pedidos cancelados ficam com status `cancelado` (soft delete — não são excluídos).
 - Pedidos fechados não podem ser editados.
 - O número sequencial do dia é calculado como: `COUNT(*) + 1` dos pedidos do dia (status ≠ `cancelado`).
+- O tipo do pedido pode ser alterado enquanto o status for aberto ou em_preparo. Ao fechar o pedido, o tipo fica imutável junto com os demais campos.
 
 ---
 
@@ -221,6 +223,37 @@ O menu de navegação é fixado na base da tela, ocupa toda a largura e exibe **
 
 ---
 
+### Módulo 4 — Gestão de Usuários
+
+**Objetivo:** Permitir que donos gerenciem os acessos ao sistema — criem novos usuários, atribuam perfis e desativem contas quando necessário. Acesso restrito exclusivamente a donos.
+
+#### Telas
+
+##### 4.4.1 Lista de Usuários (`/usuarios`)
+
+- Listagem de todos os usuários com: nome, e-mail e role (`Funcionário` / `Dono`).
+- Cada card indica visualmente se o acesso está ativo ou desativado.
+- Botão **"+ Novo Usuário"** que abre um modal de criação na mesma tela.
+- Ação **"Desativar Acesso"** disponível em cada card para revogar o login do usuário (sem excluir o registro).
+
+##### 4.4.2 Modal de Criação de Usuário
+
+- Campos: **Nome**, **E-mail**, **Perfil** (seleção entre `Funcionário` e `Dono`).
+- O servidor cria o usuário no Supabase Auth (via service role key) e insere o registro em `profiles`.
+- Senha inicial gerada automaticamente e enviada por e-mail (fluxo padrão do Supabase Auth).
+
+#### Regras de Negócio — Módulo 4
+
+- Apenas usuários com `role = 'dono'` podem acessar `/usuarios`.
+- Desativar um usuário executa **duas ações obrigatórias em sequência**:
+  1. Define `active = false` na tabela `profiles` (via `PATCH /api/users/[id]`).
+  2. Chama `supabase.auth.admin.updateUserById(id, { ban_duration: '876000h' })` via service role key para banir o usuário no Supabase Auth, impedindo qualquer novo login.
+- Reativar um usuário reverte ambas as ações: `active = true` em `profiles` e `ban_duration: 'none'` (remoção do ban) no Supabase Auth.
+- Não é possível desativar o próprio acesso (prevenção de lock-out).
+- Não é possível ter zero donos — o sistema deve rejeitar a desativação do último dono com `active = true`.
+
+---
+
 ## 5. Modelo de Dados
 
 ### 5.1 Tabela `profiles`
@@ -231,6 +264,7 @@ CREATE TABLE profiles (
   name       VARCHAR(100) NOT NULL,
   role       VARCHAR(20) NOT NULL DEFAULT 'funcionario'
              CHECK (role IN ('funcionario', 'dono')),
+  active     BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 ```
@@ -240,6 +274,7 @@ CREATE TABLE profiles (
 | `id` | UUID | Mesmo ID do usuário em `auth.users` |
 | `name` | VARCHAR(100) | Nome de exibição do usuário |
 | `role` | VARCHAR(20) | `funcionario` ou `dono` |
+| `active` | BOOLEAN | Se `false`, acesso revogado — login bloqueado no Supabase Auth |
 | `created_at` | TIMESTAMPTZ | Data de cadastro |
 
 ---
@@ -350,7 +385,7 @@ CREATE TABLE stock_items (
 | `min_quantity` | NUMERIC(10,3) | Quantidade mínima para alerta (ignorado se `is_perishable = true`) |
 | `is_perishable` | BOOLEAN | Se `true`, item é perecível — alerta de mínimo desativado |
 | `created_at` | TIMESTAMPTZ | Data de cadastro |
-| `updated_at` | TIMESTAMPTZ | Última atualização (via trigger ou app) |
+| `updated_at` | TIMESTAMPTZ | Última atualização (via trigger) |
 
 ---
 
@@ -362,6 +397,7 @@ CREATE TABLE stock_adjustments (
   stock_item_id UUID NOT NULL REFERENCES stock_items(id) ON DELETE CASCADE,
   delta         NUMERIC(10, 3) NOT NULL,
   reason        VARCHAR(20) NOT NULL CHECK (reason IN ('consumo', 'deterioracao', 'reposicao')),
+  adjusted_by   UUID NOT NULL REFERENCES profiles(id),
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 ```
@@ -372,6 +408,7 @@ CREATE TABLE stock_adjustments (
 | `stock_item_id` | UUID | Referência ao insumo |
 | `delta` | NUMERIC(10,3) | Variação de quantidade (positivo = entrada, negativo = saída) |
 | `reason` | VARCHAR(20) | Motivo: `consumo`, `deterioracao` ou `reposicao` |
+| `adjusted_by` | UUID | Referência ao usuário que realizou o ajuste (`profiles.id`) |
 | `created_at` | TIMESTAMPTZ | Data do ajuste |
 
 ---
@@ -385,7 +422,8 @@ products ───< order_items >─── orders
                   │
               (unit_price e observations capturados no momento do pedido)
 
-stock_items ───< stock_adjustments
+stock_items ───< stock_adjustments >─── profiles
+              (adjusted_by rastreia quem fez o ajuste)
               (independente — sem FK para orders nesta versão)
 ```
 
@@ -421,9 +459,7 @@ SistemasjB/
 │   ├── (app)/                    # Grupo de rotas autenticadas
 │   │   ├── layout.tsx            # Bottom nav + auth guard + role check
 │   │   ├── pedidos/
-│   │   │   ├── page.tsx          # Lista de pedidos do dia
-│   │   │   ├── novo/
-│   │   │   │   └── page.tsx      # Criar novo pedido
+│   │   │   ├── page.tsx          # Lista de pedidos do dia; botão cria pedido e redireciona
 │   │   │   └── [id]/
 │   │   │       └── page.tsx      # Editar / visualizar pedido
 │   │   ├── painel/
@@ -441,10 +477,10 @@ SistemasjB/
 │   │   │   └── [id]/
 │   │   │       └── page.tsx      # Editar produto (apenas donos)
 │   │   └── usuarios/
-│   │       └── page.tsx          # Gestão de usuários (apenas donos)
+│   │       └── page.tsx          # Gestão de usuários (apenas donos; modal de criação inline)
 │   └── api/
 │       ├── orders/
-│       │   ├── route.ts          # GET (listar) / POST (criar)
+│       │   ├── route.ts          # GET (listar) / POST (criar — redireciona para /pedidos/[id])
 │       │   └── [id]/
 │       │       ├── route.ts      # GET / PATCH / DELETE
 │       │       └── close/
@@ -458,7 +494,11 @@ SistemasjB/
 │       │   └── [id]/
 │       │       ├── route.ts      # GET / PATCH / DELETE
 │       │       └── adjust/
-│       │           └── route.ts  # POST — ajuste com motivo
+│       │           └── route.ts  # POST — ajuste com motivo e adjusted_by
+│       ├── users/
+│       │   ├── route.ts          # GET (listar) / POST (criar via service role)
+│       │   └── [id]/
+│       │       └── route.ts      # PATCH (role / desativar)
 │       └── dashboard/
 │           └── route.ts          # GET — dados do painel do dia
 ├── components/
@@ -476,6 +516,9 @@ SistemasjB/
 │   ├── stock/
 │   │   ├── StockItemCard.tsx
 │   │   └── AdjustStockModal.tsx
+│   ├── users/
+│   │   ├── UserCard.tsx
+│   │   └── CreateUserModal.tsx
 │   └── layout/
 │       └── BottomNav.tsx         # Menu de navegação inferior fixo
 ├── lib/
@@ -512,7 +555,6 @@ SistemasjB/
 | `/` | `app/page.tsx` | Redirect para `/pedidos` |
 | `/login` | `app/(auth)/login/page.tsx` | Público |
 | `/pedidos` | `app/(app)/pedidos/page.tsx` | todos |
-| `/pedidos/novo` | `app/(app)/pedidos/novo/page.tsx` | todos |
 | `/pedidos/[id]` | `app/(app)/pedidos/[id]/page.tsx` | todos |
 | `/painel` | `app/(app)/painel/page.tsx` | somente donos |
 | `/estoque` | `app/(app)/estoque/page.tsx` | todos |
@@ -522,6 +564,8 @@ SistemasjB/
 | `/cardapio/novo` | `app/(app)/cardapio/novo/page.tsx` | somente donos |
 | `/cardapio/[id]` | `app/(app)/cardapio/[id]/page.tsx` | somente donos |
 | `/usuarios` | `app/(app)/usuarios/page.tsx` | somente donos |
+
+> **Nota:** `/pedidos/novo` não é uma rota de página. Tocar em "+ Novo Pedido" chama `POST /api/orders` e redireciona diretamente para `/pedidos/[id]`.
 
 ### 7.2 Rotas de API (`/api`)
 
@@ -545,6 +589,9 @@ SistemasjB/
 | `DELETE` | `/api/stock/[id]` | Remove insumo |
 | `POST` | `/api/stock/[id]/adjust` | Ajuste de estoque: `{ delta: number, reason: 'consumo' \| 'deterioracao' \| 'reposicao' }` |
 | `GET` | `/api/dashboard` | Agrega dados do dia: total, contagem, breakdown pagamento, top produtos |
+| `GET` | `/api/users` | Lista usuários (somente donos) |
+| `POST` | `/api/users` | Cria usuário via Supabase Auth service role + insere em `profiles` (somente donos) |
+| `PATCH` | `/api/users/[id]` | Atualiza `role` ou desativa acesso (somente donos) |
 
 ---
 
@@ -553,11 +600,14 @@ SistemasjB/
 ```
 1. FUNCIONÁRIO — Tela /pedidos
    └─► Toca em "+ Novo Pedido"
-       └─► Vai para /pedidos/novo
+       └─► Modal de seleção de tipo aparece na tela
+           └─► Seleciona: [Delivery] [Retirada] [Local]
+               └─► App chama POST /api/orders com type já definido
+                   ├─► Servidor cria registro com status "aberto" no banco
+                   └─► Redireciona para /pedidos/[id] do pedido recém-criado
 
-2. FUNCIONÁRIO — Tela /pedidos/novo
-   └─► Seleciona tipo: [Delivery] [Retirada] [Local]
-       ├─► Se Delivery: digita nome do cliente (opcional)
+2. FUNCIONÁRIO — Tela /pedidos/[id] (pedido recém-criado, type já definido)
+   └─► Se Delivery: digita nome do cliente (opcional)
        └─► Navega pelo cardápio por categoria
            └─► Toca nos produtos para adicionar
                ├─► O resumo inferior atualiza em tempo real
@@ -594,12 +644,12 @@ SistemasjB/
 | # | Regra |
 |---|---|
 | RN-01 | Um pedido só pode ser fechado quando o cliente for completamente atendido **e** o pagamento for confirmado: ao menos 1 item adicionado e forma de pagamento selecionada. |
-| RN-02 | Um pedido só pode ser fechado com forma de pagamento selecionada. |
-| RN-03 | O `unit_price` de cada item é capturado no momento da criação do item (não rastreia mudanças de preço futuras). |
-| RN-04 | O `total` do pedido é calculado e validado no servidor; o valor calculado no cliente é apenas informativo. |
-| RN-05 | Pedidos fechados (`fechado`) são imutáveis — nenhum campo pode ser alterado. |
-| RN-06 | Pedidos cancelados (`cancelado`) são preservados no banco (soft delete) e excluídos do painel do dia. |
-| RN-07 | O número sequencial do dia (#1, #2…) é exibido ao usuário mas não armazenado; é calculado dinamicamente como `ROW_NUMBER()` ordenado por `created_at` para pedidos não cancelados do dia. |
+| RN-02 | O `unit_price` de cada item é capturado no momento da criação do item (não rastreia mudanças de preço futuras). |
+| RN-03 | O `total` do pedido é calculado e validado no servidor; o valor calculado no cliente é apenas informativo. |
+| RN-04 | Pedidos fechados (`fechado`) são imutáveis — nenhum campo pode ser alterado. |
+| RN-05 | Pedidos cancelados (`cancelado`) são preservados no banco (soft delete) e excluídos do painel do dia. |
+| RN-06 | O número sequencial do dia (#1, #2…) é exibido ao usuário mas não armazenado; é calculado dinamicamente como `ROW_NUMBER()` ordenado por `created_at` para pedidos não cancelados do dia. |
+| RN-07 | O tipo do pedido pode ser alterado enquanto o status for aberto ou em_preparo. Ao fechar o pedido, o tipo fica imutável junto com os demais campos. |
 
 ### 9.2 Produtos
 
@@ -615,20 +665,20 @@ SistemasjB/
 | RN-10 | A quantidade de um insumo não pode ficar abaixo de `0` (validação no servidor). |
 | RN-11 | Um insumo não perecível é considerado em alerta quando `quantity <= min_quantity`. |
 | RN-12 | Não há baixa automática de estoque ao fechar um pedido nesta versão. |
-| RN-13 | Ajustes de estoque são registrados com `delta` e `reason` obrigatórios. |
-| RN-19 | Itens perecíveis (`is_perishable = true`) não exibem alerta de estoque mínimo; `min_quantity` é ignorado para eles. |
-| RN-20 | Itens perecíveis possuem a ação "Baixa por Deterioração" (`reason = 'deterioracao'`) além da baixa normal de consumo. |
-| RN-21 | Todo ajuste de estoque registra o motivo: `consumo` (uso normal), `deterioracao` (perda por perecimento) ou `reposicao` (entrada de mercadoria). |
+| RN-13 | Ajustes de estoque são registrados com `delta`, `reason` e `adjusted_by` obrigatórios. |
+| RN-14 | Itens perecíveis (`is_perishable = true`) não exibem alerta de estoque mínimo; `min_quantity` é ignorado para eles. |
+| RN-15 | Itens perecíveis possuem a ação "Baixa por Deterioração" (`reason = 'deterioracao'`) além da baixa normal de consumo. |
+| RN-16 | Todo ajuste de estoque registra o motivo: `consumo` (uso normal), `deterioracao` (perda por perecimento) ou `reposicao` (entrada de mercadoria). |
 
 ### 9.4 Autenticação e Autorização
 
 | # | Regra |
 |---|---|
-| RN-14 | Todas as rotas do grupo `(app)` requerem sessão autenticada. |
-| RN-15 | Existem dois perfis de usuário: `funcionario` e `dono`. O perfil é armazenado na tabela `profiles` e verificado pelo middleware Next.js antes de renderizar rotas protegidas. |
-| RN-16 | A sessão é gerenciada pelo Supabase Auth com cookies seguros (middleware Next.js). |
-| RN-17 | Perfil `funcionario`: acesso a `/pedidos`, `/cardapio` (somente leitura) e `/estoque`. Acesso negado a `/painel`, `/usuarios` e edição do cardápio. |
-| RN-18 | Perfil `dono`: acesso completo a todas as rotas, incluindo `/painel`, `/cardapio` com edição e `/usuarios`. Tentativa de acesso não autorizado por funcionário redireciona para `/pedidos` com toast de erro. |
+| RN-17 | Todas as rotas do grupo `(app)` requerem sessão autenticada. |
+| RN-18 | Existem dois perfis de usuário: `funcionario` e `dono`. O perfil é armazenado na tabela `profiles` e verificado pelo middleware Next.js antes de renderizar rotas protegidas. |
+| RN-19 | A sessão é gerenciada pelo Supabase Auth com cookies seguros (middleware Next.js). |
+| RN-20 | Perfil `funcionario`: acesso a `/pedidos`, `/cardapio` (somente leitura) e `/estoque`. Acesso negado a `/painel`, `/usuarios` e edição do cardápio. |
+| RN-21 | Perfil `dono`: acesso completo a todas as rotas, incluindo `/painel`, `/cardapio` com edição e `/usuarios`. Tentativa de acesso não autorizado por funcionário redireciona para `/pedidos` com toast de erro. |
 
 ---
 
@@ -700,8 +750,9 @@ ORDER BY name;
 ### Histórico de ajustes de um insumo
 
 ```sql
-SELECT sa.created_at, sa.delta, sa.reason
+SELECT sa.created_at, sa.delta, sa.reason, p.name AS adjusted_by
 FROM stock_adjustments sa
+JOIN profiles p ON p.id = sa.adjusted_by
 WHERE sa.stock_item_id = '<uuid>'
 ORDER BY sa.created_at DESC;
 ```
@@ -725,7 +776,7 @@ Fase 0 — Infraestrutura (pré-requisito de tudo)
   9. [ ] Implementar BottomNav com visibilidade condicional por role
 
 Fase 1 — Dados base (pré-requisito do Módulo 0 e 1)
-  10. [ ] Criar tabelas: products, orders, order_items (com campo observations), stock_items (com is_perishable), stock_adjustments (com reason)
+  10. [ ] Criar tabelas: products, orders, order_items (com campo observations), stock_items (com is_perishable), stock_adjustments (com reason e adjusted_by)
   11. [ ] Definir tipos TypeScript (types/index.ts) incluindo Profile, Order com novos tipos, OrderItem com observations
   12. [ ] Implementar API de produtos (GET /api/products)
 
@@ -735,35 +786,40 @@ Fase 2 — Módulo 0: Gestão de Cardápio
   15. [ ] Popular cardápio com produtos reais
 
 Fase 3 — Módulo 1: Registro de Pedidos ⭐
-  16. [ ] Implementar POST /api/orders (criar pedido com type: delivery | retirada | local)
+  16. [ ] Implementar POST /api/orders (criar pedido com type: delivery | retirada | local; retorna id para redirect)
   17. [ ] Implementar GET /api/orders (listar pedidos do dia)
-  18. [ ] Implementar tela /pedidos (lista)
+  18. [ ] Implementar tela /pedidos (lista; botão "+ Novo Pedido" cria registro e redireciona para /pedidos/[id])
   19. [ ] Implementar componente ProductGrid
   20. [ ] Implementar OrderItemRow com campo de observações opcional
-  21. [ ] Implementar tela /pedidos/novo (criação com seleção de produtos e observações)
+  21. [ ] Implementar tela /pedidos/[id] (edição completa: tipo, produtos, observações, pagamento)
   22. [ ] Implementar POST /api/orders/[id]/close (fechar pedido com validação completa)
   23. [ ] Implementar PATCH /api/orders/[id] e DELETE (cancelar)
-  24. [ ] Implementar tela /pedidos/[id] (edição)
-  25. [ ] Testes manuais do fluxo completo de pedido
+  24. [ ] Testes manuais do fluxo completo de pedido
 
 Fase 4 — Módulo 2: Painel do Dia
-  26. [ ] Implementar GET /api/dashboard (aggregations)
-  27. [ ] Implementar componentes do painel (SummaryCard, PaymentBreakdown, TopProductsList)
-  28. [ ] Implementar tela /painel (com guard de role = 'dono')
+  25. [ ] Implementar GET /api/dashboard (aggregations)
+  26. [ ] Implementar componentes do painel (SummaryCard, PaymentBreakdown, TopProductsList)
+  27. [ ] Implementar tela /painel (com guard de role = 'dono')
 
 Fase 5 — Módulo 3: Estoque
-  29. [ ] Implementar API de estoque (CRUD + /api/stock/[id]/adjust com reason)
-  30. [ ] Implementar tela /estoque (lista com alerta para não perecíveis, badge para perecíveis)
-  31. [ ] Implementar tela /estoque/novo e /estoque/[id] (com toggle is_perishable)
-  32. [ ] Implementar AdjustStockModal com seleção de motivo (consumo / deterioracao / reposicao)
+  28. [ ] Implementar API de estoque (CRUD + /api/stock/[id]/adjust com reason)
+  29. [ ] Implementar tela /estoque (lista com alerta para não perecíveis, badge para perecíveis)
+  30. [ ] Implementar tela /estoque/novo e /estoque/[id] (com toggle is_perishable)
+  31. [ ] Implementar AdjustStockModal com seleção de motivo (consumo / deterioracao / reposicao)
 
-Fase 6 — Polimento e Deploy
-  33. [ ] Revisão de UX mobile: altura de botões (min 56px), cards empilhados, teclado numérico
-  34. [ ] Verificar ausência de tabelas com scroll horizontal — substituir por cards onde necessário
-  35. [ ] Configurar projeto na Vercel + conectar ao GitHub
-  36. [ ] Configurar variáveis de ambiente na Vercel
-  37. [ ] Deploy e testes em produção
-  38. [ ] Onboarding dos usuários (funcionário + donos)
+Fase 6 — Módulo 4: Gestão de Usuários
+  32. [ ] Implementar GET /api/users e POST /api/users (via service role key)
+  33. [ ] Implementar PATCH /api/users/[id] (role e desativação)
+  34. [ ] Implementar tela /usuarios (lista + CreateUserModal)
+  35. [ ] Validar regras: não desativar a si mesmo, não remover último dono
+
+Fase 7 — Polimento e Deploy
+  36. [ ] Revisão de UX mobile: altura de botões (min 56px), cards empilhados, teclado numérico
+  37. [ ] Verificar ausência de tabelas com scroll horizontal — substituir por cards onde necessário
+  38. [ ] Configurar projeto na Vercel + conectar ao GitHub
+  39. [ ] Configurar variáveis de ambiente na Vercel
+  40. [ ] Deploy e testes em produção
+  41. [ ] Onboarding dos usuários (funcionário + donos)
 ```
 
 ---
