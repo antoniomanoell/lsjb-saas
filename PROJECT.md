@@ -720,32 +720,50 @@ NEXT_PUBLIC_APP_NAME="Sistema São João Batista"
 
 ### Total e contagem do dia
 
-```sql
-SELECT
-  COUNT(*) FILTER (WHERE status = 'fechado')         AS total_pedidos,
-  COALESCE(SUM(total) FILTER (WHERE status = 'fechado'), 0) AS total_dia,
-  COALESCE(SUM(total) FILTER (WHERE status = 'fechado' AND payment_method = 'dinheiro'), 0) AS total_dinheiro,
-  COALESCE(SUM(total) FILTER (WHERE status = 'fechado' AND payment_method = 'pix'), 0)     AS total_pix,
-  COALESCE(SUM(total) FILTER (WHERE status = 'fechado' AND payment_method = 'cartao'), 0)  AS total_cartao
-FROM orders
-WHERE created_at::date = CURRENT_DATE;
-```
-
-### Top produtos do dia
+**Nota:** Como o cliente JS do Supabase não suporta agregações avançadas com `FILTER` nativamente, esta consulta (junto com os top produtos) deve ser encapsulada em uma função RPC no banco de dados.
 
 ```sql
-SELECT
-  p.name,
-  SUM(oi.quantity)               AS total_quantidade,
-  SUM(oi.quantity * oi.unit_price) AS total_receita
-FROM order_items oi
-JOIN products p ON p.id = oi.product_id
-JOIN orders o   ON o.id = oi.order_id
-WHERE o.status = 'fechado'
-  AND o.created_at::date = CURRENT_DATE
-GROUP BY p.id, p.name
-ORDER BY total_quantidade DESC
-LIMIT 5;
+CREATE OR REPLACE FUNCTION get_dashboard_data(target_date DATE)
+RETURNS json
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  result json;
+BEGIN
+  SELECT json_build_object(
+    'totais', (
+      SELECT json_build_object(
+        'total_pedidos', COUNT(*) FILTER (WHERE status = 'fechado'),
+        'total_dia', COALESCE(SUM(total) FILTER (WHERE status = 'fechado'), 0),
+        'total_dinheiro', COALESCE(SUM(total) FILTER (WHERE status = 'fechado' AND payment_method = 'dinheiro'), 0),
+        'total_pix', COALESCE(SUM(total) FILTER (WHERE status = 'fechado' AND payment_method = 'pix'), 0),
+        'total_cartao', COALESCE(SUM(total) FILTER (WHERE status = 'fechado' AND payment_method = 'cartao'), 0)
+      )
+      FROM orders
+      WHERE (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')::date = target_date
+    ),
+    'top_produtos', (
+      SELECT COALESCE(json_agg(row_to_json(t)), '[]')
+      FROM (
+        SELECT
+          p.name,
+          SUM(oi.quantity) AS total_quantidade,
+          SUM(oi.quantity * oi.unit_price) AS total_receita
+        FROM order_items oi
+        JOIN products p ON p.id = oi.product_id
+        JOIN orders o   ON o.id = oi.order_id
+        WHERE o.status = 'fechado'
+          AND (o.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')::date = target_date
+        GROUP BY p.id, p.name
+        ORDER BY total_quantidade DESC
+        LIMIT 5
+      ) t
+    )
+  ) INTO result;
+  
+  RETURN result;
+END;
+$$;
 ```
 
 ### Insumos não perecíveis abaixo do mínimo

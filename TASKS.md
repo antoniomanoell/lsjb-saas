@@ -261,7 +261,54 @@ CREATE POLICY "authenticated_full_access" ON stock_items   FOR ALL TO authentica
 CREATE POLICY "authenticated_full_access" ON stock_adjustments FOR ALL TO authenticated USING (true) WITH CHECK (true);
 ```
 
-11. **Seed: criar o primeiro usuário dono manualmente**
+11. **Função (RPC) de Dashboard (`get_dashboard_data`)**
+O cliente Supabase JS não suporta filtrações avançadas nas agregações (`FILTER`). Criaremos uma função para facilitar a vida do componente de painel e consolidar adequadamente as transações usando fuso horário brasileiro.
+```sql
+CREATE OR REPLACE FUNCTION get_dashboard_data(target_date DATE)
+RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  result json;
+BEGIN
+  SELECT json_build_object(
+    'totais', (
+      SELECT json_build_object(
+        'total_pedidos', COUNT(*) FILTER (WHERE status = 'fechado'),
+        'total_dia', COALESCE(SUM(total) FILTER (WHERE status = 'fechado'), 0),
+        'total_dinheiro', COALESCE(SUM(total) FILTER (WHERE status = 'fechado' AND payment_method = 'dinheiro'), 0),
+        'total_pix', COALESCE(SUM(total) FILTER (WHERE status = 'fechado' AND payment_method = 'pix'), 0),
+        'total_cartao', COALESCE(SUM(total) FILTER (WHERE status = 'fechado' AND payment_method = 'cartao'), 0)
+      )
+      FROM orders
+      WHERE (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')::date = target_date
+    ),
+    'top_produtos', (
+      SELECT COALESCE(json_agg(row_to_json(t)), '[]')
+      FROM (
+        SELECT
+          p.name,
+          SUM(oi.quantity) AS total_quantidade,
+          SUM(oi.quantity * oi.unit_price) AS total_receita
+        FROM order_items oi
+        JOIN products p ON p.id = oi.product_id
+        JOIN orders o   ON o.id = oi.order_id
+        WHERE o.status = 'fechado'
+          AND (o.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Sao_Paulo')::date = target_date
+        GROUP BY p.id, p.name
+        ORDER BY total_quantidade DESC
+        LIMIT 5
+      ) t
+    )
+  ) INTO result;
+  
+  RETURN result;
+END;
+$$;
+```
+
+12. **Seed: criar o primeiro usuário dono manualmente**
 
 O sistema precisa de ao menos 1 dono para que o middleware e o login sejam testáveis. Criar manualmente via Supabase Dashboard:
 - Ir em **Authentication → Users → Add User**
@@ -563,7 +610,8 @@ export type StockAdjustment = {
 **O que fazer:**
 
 - Criar `app/api/orders/route.ts` com:
-  - `GET`: lista pedidos do dia; aceita `?date=YYYY-MM-DD` (padrão: hoje) e `?status=aberto`
+  - `GET`: lista pedidos do dia; aceita `?date=YYYY-MM-DD` (padrão: hoje, respeitando o timezone 'America/Sao_Paulo') e `?status=aberto`
+    - Filtra usando SQL Equivalente no select: procurar por igualdade entre data passada e data UTC tratada (Dica: no backend `supabase-js`, você precisa calcular o intervalo `gte` e `lt` para cobrir de 00:00 às 23:59:59 daquele dia no fuso de SP).
     - Ordena por `created_at DESC`
     - Inclui contagem de itens por pedido
     - Retorna array de `Order`
@@ -781,37 +829,14 @@ export type StockAdjustment = {
 **O que fazer:**
 
 - Criar `app/api/dashboard/route.ts`:
-  - `GET`: aceita query `?date=YYYY-MM-DD` (padrão: hoje)
+  - `GET`: aceita query `?date=YYYY-MM-DD` (padrão: data atual em `America/Sao_Paulo`)
   - Requer `role = 'dono'` (retorna 403 para funcionários)
-  - Executa as seguintes queries no Supabase:
-
-  **Totais gerais:**
-  ```sql
-  SELECT
-    COUNT(*) FILTER (WHERE status = 'fechado')                                    AS total_pedidos,
-    COALESCE(SUM(total) FILTER (WHERE status = 'fechado'), 0)                     AS total_dia,
-    COALESCE(SUM(total) FILTER (WHERE status = 'fechado' AND payment_method = 'dinheiro'), 0) AS total_dinheiro,
-    COALESCE(SUM(total) FILTER (WHERE status = 'fechado' AND payment_method = 'pix'), 0)      AS total_pix,
-    COALESCE(SUM(total) FILTER (WHERE status = 'fechado' AND payment_method = 'cartao'), 0)   AS total_cartao
-  FROM orders WHERE created_at::date = $1;
-  ```
-
-  **Top 5 produtos:**
-  ```sql
-  SELECT p.name,
-         SUM(oi.quantity)               AS total_quantidade,
-         SUM(oi.quantity * oi.unit_price) AS total_receita
-  FROM order_items oi
-  JOIN products p ON p.id = oi.product_id
-  JOIN orders o   ON o.id = oi.order_id
-  WHERE o.status = 'fechado' AND o.created_at::date = $1
-  GROUP BY p.id, p.name
-  ORDER BY total_quantidade DESC
-  LIMIT 5;
-  ```
-
-  - Retorna JSON com: `{ total_pedidos, total_dia, ticket_medio, total_dinheiro, total_pix, total_cartao, top_produtos[] }`
-  - `ticket_medio = total_pedidos > 0 ? total_dia / total_pedidos : 0`
+  - Chama a função (RPC) criada no F0-03 usando o cliente do supabase:
+    ```js
+    const { data, error } = await supabase.rpc('get_dashboard_data', { target_date: selectedDate })
+    ```
+  - Parseia o JSON recebido. Ele já vai conter a estrutura de totais e a listagem consolidada do top_produtos processado adequadamente com verificação de fuso horário.
+  - O JSON a ser retornado à client page precisará ser desestruturado para `{ total_pedidos, total_dia, ticket_medio, total_dinheiro, total_pix, total_cartao, top_produtos[] }` com `ticket_medio = total_pedidos > 0 ? totais.total_dia / totais.total_pedidos : 0`
 
 **Critério de conclusão:**
 - `GET /api/dashboard` retorna estrutura correta com dia sem pedidos (zeros)
