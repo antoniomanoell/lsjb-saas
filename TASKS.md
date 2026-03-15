@@ -125,6 +125,7 @@ Executar os seguintes SQLs no **SQL Editor do Supabase Dashboard**, nesta ordem:
 CREATE TABLE profiles (
   id         UUID PRIMARY KEY REFERENCES auth.users(id),
   name       VARCHAR(100) NOT NULL,
+  email      VARCHAR(255) NOT NULL,
   role       VARCHAR(20) NOT NULL DEFAULT 'funcionario'
              CHECK (role IN ('funcionario', 'dono')),
   active     BOOLEAN NOT NULL DEFAULT TRUE,
@@ -226,10 +227,11 @@ FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE OR REPLACE FUNCTION handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-  INSERT INTO public.profiles (id, name, role)
+  INSERT INTO public.profiles (id, name, email, role)
   VALUES (
     NEW.id,
     COALESCE(NEW.raw_user_meta_data->>'name', NEW.email),
+    NEW.email,
     COALESCE(NEW.raw_user_meta_data->>'role', 'funcionario')
   );
   RETURN NEW;
@@ -259,11 +261,23 @@ CREATE POLICY "authenticated_full_access" ON stock_items   FOR ALL TO authentica
 CREATE POLICY "authenticated_full_access" ON stock_adjustments FOR ALL TO authenticated USING (true) WITH CHECK (true);
 ```
 
+11. **Seed: criar o primeiro usuário dono manualmente**
+
+O sistema precisa de ao menos 1 dono para que o middleware e o login sejam testáveis. Criar manualmente via Supabase Dashboard:
+- Ir em **Authentication → Users → Add User**
+- Preencher e-mail e senha do primeiro dono
+- Após criação, o trigger `handle_new_user` insere automaticamente em `profiles` com `role = 'funcionario'`
+- Atualizar o role para dono via SQL:
+```sql
+UPDATE profiles SET role = 'dono' WHERE email = '<email_do_dono>';
+```
+
 **Critério de conclusão:**
 - Todas as 6 tabelas existem no Supabase com estrutura correta (verificar no Table Editor)
 - Índices e triggers criados (verificar em Database → Triggers e Indexes)
 - RLS habilitado em todas as tabelas
 - Inserção de teste manual em `products` funciona via SQL Editor
+- Primeiro usuário dono criado e com login funcional
 
 ---
 
@@ -362,6 +376,7 @@ export type Role = 'funcionario' | 'dono'
 export type Profile = {
   id: string
   name: string
+  email: string
   role: Role
   active: boolean
   created_at: string
@@ -433,7 +448,7 @@ export type StockAdjustment = {
 
 ---
 
-### F1-02 — Implementar a API de produtos (`GET /api/products`)
+### F1-02 — Implementar a API de produtos (GET / PATCH / DELETE)
 
 **Dependências:** F0-02, F0-03, F1-01
 
@@ -613,7 +628,7 @@ export type StockAdjustment = {
     - Nome do cliente (se preenchido)
     - Status com badge colorido
     - Total parcial (R$)
-  - Botão **"+ Novo Pedido"** fixo no topo (hauteur mínima 56px)
+  - Botão **"+ Novo Pedido"** fixo no topo (altura mínima 56px)
   - Ao tocar em "+ Novo Pedido": abre **modal de seleção de tipo** com 3 botões grandes:
     - **Delivery**, **Retirada**, **Local**
     - Cada botão tem ícone + label, altura mínima 64px
@@ -693,26 +708,34 @@ export type StockAdjustment = {
   - **Campo nome do cliente:** visível e editável; mais relevante para Delivery
   - **Seção Cardápio:** renderiza `<ProductGrid>` com todos os produtos ativos
   - **Seção "Meu Pedido":** lista de itens usando `<OrderItemRow>`
-    - Adicionar produto: insere em `order_items` via `POST /api/orders/[id]/items` (criar essa sub-rota)
+    - Adicionar produto: insere em `order_items` via `POST /api/orders/[id]/items`
     - Ajustar quantidade: atualiza `order_items` via `PATCH /api/orders/[id]/items/[itemId]`
     - Remover item: deleta `order_items` via `DELETE /api/orders/[id]/items/[itemId]`
     - Observações: atualiza campo `observations` no item
   - **Total parcial** atualizado em tempo real (calculado no cliente)
-  - **Seção Pagamento:** seleção entre Dinheiro / Pix / Cartão (botões grandes, altura 56px)
+  - **Seção Pagamento:** renderiza `<PaymentSelector>` com seleção entre Dinheiro / Pix / Cartão (botões grandes, altura 56px)
   - **Botão "Fechar Pedido":** ativo apenas quando `items.length > 0` e `payment_method !== null`; chama `POST /api/orders/[id]/close`
   - **Botão "Cancelar Pedido":** disponível para pedidos `aberto` ou `em_preparo`; chama `DELETE /api/orders/[id]`; pede confirmação antes
   - Pedidos com status `fechado` ou `cancelado`: tela de visualização somente leitura
+- Criar componentes auxiliares:
+  - `components/orders/PaymentSelector.tsx`: 3 botões grandes (Dinheiro / Pix / Cartão) com ícone + label; recebe `onSelect: (method: PaymentMethod) => void`; botão ativo fica destacado
+  - `components/orders/OrderCard.tsx`: card de pedido para uso na lista `/pedidos` — exibe número sequencial, tipo com ícone, nome do cliente, status e total
+- Criar hooks:
+  - `hooks/useOrders.ts`: fetcher para `GET /api/orders` com refetch
+  - `hooks/useProducts.ts`: fetcher para `GET /api/products?active=true`
+  - `hooks/useProfile.ts`: retorna o perfil do usuário logado via context
 - Criar rotas de items aninhadas:
-  - `app/api/orders/[id]/items/route.ts`: `POST` — adiciona item ao pedido
-  - `app/api/orders/[id]/items/[itemId]/route.ts`: `PATCH` e `DELETE`
+  - `app/api/orders/[id]/items/route.ts`: `POST` — adiciona item ao pedido (recebe `product_id`, `quantity`, `observations?`; captura `unit_price` do produto ativo)
+  - `app/api/orders/[id]/items/[itemId]/route.ts`: `PATCH` (atualiza `quantity` ou `observations`) e `DELETE` (remove item)
 
 **Critério de conclusão:**
 - Adicionar produto ao pedido funciona e lista atualiza
 - Ajustar quantidade e observações funcionam e persistem
-- Forma de pagamento selecionável
+- Forma de pagamento selecionável via `<PaymentSelector>`
 - Botão "Fechar Pedido" fica ativo apenas quando há itens E pagamento selecionado
 - Cancelar pedido pede confirmação e muda status para `cancelado`
 - Pedido fechado exibe tela somente leitura
+- `PaymentSelector`, `OrderCard` e hooks compilam e renderizam corretamente
 
 ---
 
@@ -997,12 +1020,14 @@ export type StockAdjustment = {
 **O que fazer:**
 
 - Criar `app/api/users/route.ts`:
-  - `GET`: lista todos os usuários da tabela `profiles`; requer `role = 'dono'`; retorna array de `Profile`
+  - `GET`: lista todos os usuários da tabela `profiles`; requer `role = 'dono'`; retorna array de `Profile` (que já inclui `email`)
   - `POST`: cria novo usuário; requer `role = 'dono'`
     - Payload: `{ name: string, email: string, role: Role }`
-    - Usa `supabaseAdmin.auth.admin.createUser({ email, password: undefined, email_confirm: true, user_metadata: { name, role } })` para criar usuário no Auth
-    - O trigger `on_auth_user_created` insere automaticamente em `profiles`
+    - Fluxo de criação (2 etapas):
+      1. Chamar `supabaseAdmin.auth.admin.inviteUserByEmail(email, { data: { name, role } })` — envia convite por e-mail com link para definir senha
+      2. O trigger `on_auth_user_created` insere automaticamente em `profiles` (com `email` denormalizado)
     - Retorna o `Profile` criado
+    - **Importante:** `inviteUserByEmail` é usado em vez de `createUser` porque o login do sistema usa `signInWithPassword`. O convite permite que o usuário defina a própria senha pelo link recebido no e-mail.
 
 - Criar schema Zod:
   ```ts
@@ -1014,9 +1039,10 @@ export type StockAdjustment = {
   ```
 
 **Critério de conclusão:**
-- `GET /api/users` retorna lista de usuários para donos e 403 para funcionários
-- `POST /api/users` cria usuário no Supabase Auth e o registro aparece em `profiles`
-- Usuário criado recebe e-mail de confirmação/definição de senha (fluxo padrão Supabase)
+- `GET /api/users` retorna lista de usuários (com nome e e-mail) para donos e 403 para funcionários
+- `POST /api/users` cria usuário no Supabase Auth e o registro aparece em `profiles` com `email` preenchido
+- Usuário criado recebe e-mail com link para definir senha
+- Após definir a senha, o usuário consegue fazer login via `signInWithPassword`
 
 ---
 

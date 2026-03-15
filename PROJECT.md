@@ -262,6 +262,7 @@ O menu de navegação é fixado na base da tela, ocupa toda a largura e exibe **
 CREATE TABLE profiles (
   id         UUID PRIMARY KEY REFERENCES auth.users(id),
   name       VARCHAR(100) NOT NULL,
+  email      VARCHAR(255) NOT NULL,
   role       VARCHAR(20) NOT NULL DEFAULT 'funcionario'
              CHECK (role IN ('funcionario', 'dono')),
   active     BOOLEAN NOT NULL DEFAULT TRUE,
@@ -273,6 +274,7 @@ CREATE TABLE profiles (
 |---|---|---|
 | `id` | UUID | Mesmo ID do usuário em `auth.users` |
 | `name` | VARCHAR(100) | Nome de exibição do usuário |
+| `email` | VARCHAR(255) | E-mail do usuário (denormalizado de `auth.users` para consulta direta) |
 | `role` | VARCHAR(20) | `funcionario` ou `dono` |
 | `active` | BOOLEAN | Se `false`, acesso revogado — login bloqueado no Supabase Auth |
 | `created_at` | TIMESTAMPTZ | Data de cadastro |
@@ -483,8 +485,12 @@ SistemasjB/
 │       │   ├── route.ts          # GET (listar) / POST (criar — redireciona para /pedidos/[id])
 │       │   └── [id]/
 │       │       ├── route.ts      # GET / PATCH / DELETE
-│       │       └── close/
-│       │           └── route.ts  # POST — fechar pedido
+│       │       ├── close/
+│       │       │   └── route.ts  # POST — fechar pedido
+│       │       └── items/
+│       │           ├── route.ts  # POST — adicionar item ao pedido
+│       │           └── [itemId]/
+│       │               └── route.ts  # PATCH / DELETE — alterar/remover item
 │       ├── products/
 │       │   ├── route.ts          # GET / POST
 │       │   └── [id]/
@@ -524,7 +530,8 @@ SistemasjB/
 ├── lib/
 │   ├── supabase/
 │   │   ├── client.ts             # Cliente Supabase para o browser
-│   │   └── server.ts             # Cliente Supabase para Server Components
+│   │   ├── server.ts             # Cliente Supabase para Server Components
+│   │   └── admin.ts              # Cliente privilegiado com service role (server-side only)
 │   ├── utils.ts                  # Funções utilitárias (formatação, cálculo)
 │   └── validations.ts            # Schemas Zod para validação de entrada
 ├── middleware.ts                  # Auth guard + verificação de role por rota
@@ -577,6 +584,9 @@ SistemasjB/
 | `PATCH` | `/api/orders/[id]` | Atualiza tipo, nome do cliente ou status (aberto→em_preparo) |
 | `DELETE` | `/api/orders/[id]` | Cancela pedido (status → `cancelado`) |
 | `POST` | `/api/orders/[id]/close` | Fecha pedido: valida atendimento completo + pagamento, calcula total, grava `closed_at` |
+| `POST` | `/api/orders/[id]/items` | Adiciona item ao pedido (`product_id`, `quantity`, `observations?`; captura `unit_price` do produto) |
+| `PATCH` | `/api/orders/[id]/items/[itemId]` | Atualiza `quantity` ou `observations` de um item do pedido |
+| `DELETE` | `/api/orders/[id]/items/[itemId]` | Remove item do pedido |
 | `GET` | `/api/products` | Lista produtos; aceita query `?active=true` |
 | `POST` | `/api/products` | Cria produto (somente donos) |
 | `GET` | `/api/products/[id]` | Retorna produto |
