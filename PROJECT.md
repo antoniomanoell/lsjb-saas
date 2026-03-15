@@ -1,28 +1,32 @@
-# PROJECT.md — LanchoneteSaaS
+# PROJECT.md — Sistema São João Batista
 > Fonte única de verdade para desenvolvimento do sistema de gestão de lanchonete familiar.
-> Versão: 1.0 · Data: 2026-03-14
+> Versão: 1.1 · Data: 2026-03-14
 
 ---
 
 ## 1. Visão Geral
 
-**LanchoneteSaaS** é um sistema web de gestão operacional desenvolvido para uso interno de uma lanchonete familiar de pequeno porte. O objetivo é substituir o controle manual (cadernos, calculadoras, planilhas) por uma interface digital simples, rápida e confiável.
+**Sistema São João Batista** é um sistema web de gestão operacional desenvolvido para uso interno de uma lanchonete familiar de pequeno porte. O objetivo é substituir o controle manual (cadernos, calculadoras, planilhas) por uma interface digital simples, rápida e confiável.
 
 ### Contexto de Uso
 
 | Aspecto | Detalhe |
 |---|---|
 | Porte | Pequena lanchonete familiar |
-| Atendimento | Balcão presencial + Delivery via WhatsApp/telefone |
+| Atendimento | Balcão presencial (local e retirada) + Delivery via WhatsApp/telefone |
 | Usuários | 1 funcionário + 2 donos |
-| Dispositivos | Desktop ou tablet no balcão; celular para gestão |
+| Dispositivos | **Celular** (dispositivo principal); acesso via navegador |
 | Perfil técnico | Baixo — interface deve ser extremamente simples |
 | Acesso | Via navegador (sem instalação de app) |
 
 ### Princípios de UX
 
 - **Poucos cliques**: operações críticas em no máximo 3 toques.
-- **Botões grandes**: área de toque mínima de 48×48 px.
+- **Mobile-first**: layout em coluna única em todas as telas, sem exceções.
+- **Botões grandes**: altura mínima de 56 px para área de toque confortável em celular.
+- **Sem tabelas com scroll horizontal**: listas de dados usam cards empilhados, não tabelas.
+- **Teclado nativo**: campos de quantidade e preço ativam o teclado numérico nativo (`inputMode="numeric"`).
+- **Navegação inferior fixa**: menu de navegação fixo na base da tela com ícones grandes e labels — sem hamburger menu.
 - **Feedback imediato**: confirmação visual após cada ação.
 - **Sem ambiguidade**: nomes claros, sem jargão técnico.
 - **Resiliência**: a tela de pedidos não pode travar nem perder dados.
@@ -41,7 +45,7 @@
 
 ### 2.3 UI — shadcn/ui + Tailwind CSS
 
-**Motivo:** shadcn/ui fornece componentes acessíveis e prontos (botões, modais, tabelas) que podem ser copiados para o projeto e customizados. Tailwind elimina a necessidade de arquivos CSS separados e acelera a prototipação. A combinação é o padrão de facto para projetos Next.js modernos.
+**Motivo:** shadcn/ui fornece componentes acessíveis e prontos (botões, modais, cards) que podem ser copiados para o projeto e customizados. Tailwind elimina a necessidade de arquivos CSS separados e acelera a prototipação. A combinação é o padrão de facto para projetos Next.js modernos.
 
 ### 2.4 Deploy — Vercel (plano hobby / gratuito)
 
@@ -64,34 +68,85 @@ Repositório: GitHub
 
 ---
 
-## 3. Módulos do Sistema
+## 3. Navegação
 
-### Módulo 1 — Registro de Pedidos ⭐ (Prioridade Máxima)
+### Tela Inicial
 
-**Objetivo:** Tela operacional usada pelo funcionário dezenas de vezes por dia para registrar todas as vendas.
+A tela inicial após login é `/pedidos` para **todos** os perfis (funcionário e dono).
+
+### Menu de Navegação Inferior Fixo
+
+O menu de navegação é fixado na base da tela, ocupa toda a largura e exibe **ícone + label** para cada item. Não há hamburger menu.
+
+| Item | Ícone | Rota | Perfis com acesso |
+|---|---|---|---|
+| Pedidos | `clipboard` | `/pedidos` | todos |
+| Estoque | `package` | `/estoque` | todos |
+| Cardápio | `book` | `/cardapio` | todos (edição restrita a donos) |
+| Painel | `bar-chart` | `/painel` | somente donos |
+
+- O item **Painel** é renderizado e acessível apenas para usuários com `role = 'dono'`. Funcionários não veem esse item no menu.
+- Em celular, os 4 itens dividem igualmente a largura da tela com ícone centralizado acima do label.
+
+---
+
+## 4. Módulos do Sistema
+
+### Módulo 0 — Gestão de Cardápio
+
+**Objetivo:** Manter o catálogo de produtos vendidos pela lanchonete. Funcionários podem consultar; apenas donos podem criar, editar ou desativar produtos.
 
 #### Telas
 
-##### 3.1.1 Tela Principal de Pedidos (`/pedidos`)
+##### 4.0.1 Lista de Produtos (`/cardapio`)
+
+- Listagem de todos os produtos com: nome, preço, categoria e status ativo/inativo.
+- Cada card exibe um **toggle** para ativar/desativar o produto diretamente na lista (visível e clicável apenas para donos; somente leitura para funcionários).
+- Botão **"+ Novo Produto"** visível apenas para donos.
+- Toque no card abre a tela de edição (somente para donos).
+
+##### 4.0.2 Criar/Editar Produto (`/cardapio/novo` e `/cardapio/[id]`)
+
+- Campos: **Nome**, **Preço** (teclado numérico), **Categoria** (texto livre), **Ativo** (toggle).
+- Botão **Salvar** e, na edição, botão **Desativar Produto** (que define `active = false`).
+- Exclusão física não é permitida — apenas desativação.
+
+#### Regras de Negócio — Módulo 0
+
+- Produtos não são excluídos fisicamente para preservar histórico de pedidos; `active = false` os remove do cardápio operacional.
+- Categoria é um campo de texto livre — não há tabela separada de categorias.
+- Funcionários têm acesso de leitura ao cardápio; criação e edição são restritas a donos.
+- O preço de um produto pode ser alterado a qualquer momento sem afetar pedidos já registrados (ver RN-03).
+
+---
+
+### Módulo 1 — Registro de Pedidos ⭐ (Prioridade Máxima)
+
+**Objetivo:** Tela operacional usada pelo funcionário dezenas de vezes por dia para registrar todas as vendas. Um pedido só pode ser fechado quando o cliente for completamente atendido e o pagamento for confirmado.
+
+#### Telas
+
+##### 4.1.1 Tela Principal de Pedidos (`/pedidos`)
 
 - Lista dos pedidos ativos do dia (status: `aberto` ou `em_preparo`).
 - Botão grande **"+ Novo Pedido"** no topo.
-- Cada pedido exibe: número sequencial do dia, tipo (Balcão / Delivery), total parcial, status.
-- Toque no pedido abre o detalhe/edição.
+- Cada pedido exibe: número sequencial do dia, tipo (Delivery / Retirada / Local), total parcial, status.
+- Toque no card do pedido abre o detalhe/edição.
 
-##### 3.1.2 Criar/Editar Pedido (`/pedidos/[id]`)
+##### 4.1.2 Criar/Editar Pedido (`/pedidos/[id]`)
 
-- **Tipo do pedido:** seleção visual entre "Balcão" e "Delivery" (botões grandes com ícone).
+- **Tipo do pedido:** seleção visual entre "Delivery", "Retirada" e "Local" (botões grandes com ícone).
 - **Campo nome** (opcional, mais relevante para delivery): nome do cliente.
 - **Cardápio:** grade de produtos agrupados por categoria. Cada produto exibe nome e preço. Toque adiciona 1 unidade; há botões `+` e `−` para ajustar quantidade.
-- **Resumo do pedido:** lista lateral (ou inferior em mobile) com itens selecionados, quantidades e subtotais.
+- **Observações por item:** abaixo de cada item adicionado ao pedido, há um campo de texto opcional para observações do cliente (ex: "sem alface", "bem passado", "sem cebola"). O campo é colapsado por padrão e expandido ao toque.
+- **Resumo do pedido:** seção inferior com itens selecionados, quantidades e subtotais.
 - **Forma de pagamento:** seleção obrigatória antes de fechar — "Dinheiro", "Pix", "Cartão".
-- **Botão "Fechar Pedido":** ativo somente quando ao menos 1 item foi adicionado e a forma de pagamento foi selecionada.
+- **Botão "Fechar Pedido":** ativo somente quando ao menos 1 item foi adicionado, a forma de pagamento foi selecionada e o atendimento está completo.
 - **Botão "Cancelar Pedido":** disponível enquanto o pedido está aberto.
 
 #### Regras de Negócio — Módulo 1
 
-- Um pedido só pode ser fechado se tiver pelo menos 1 item.
+- Um pedido só pode ser fechado quando o cliente for completamente atendido **e** o pagamento for confirmado (ao menos 1 item + forma de pagamento selecionada).
 - Um pedido só pode ser fechado se a forma de pagamento estiver selecionada.
 - O total do pedido é calculado no cliente (soma de `quantity × unit_price`) e validado novamente no servidor antes de persistir.
 - O `unit_price` dos itens é capturado no momento do pedido (não muda com alterações futuras no cardápio).
@@ -107,7 +162,7 @@ Repositório: GitHub
 
 #### Telas
 
-##### 3.2.1 Painel Gerencial (`/painel`)
+##### 4.2.1 Painel Gerencial (`/painel`)
 
 - **Total do dia:** valor em destaque, grande.
 - **Quantidade de pedidos** fechados no dia.
@@ -116,13 +171,14 @@ Repositório: GitHub
 - **Ranking dos 5 produtos mais vendidos:** nome do produto, quantidade vendida, receita gerada.
 - **Comparativo simples:** "vs. ontem" (opcional na V1 — porém a query suporta).
 - Filtro de data (padrão: hoje). Seleção de outra data para ver dias anteriores.
-- Layout legível em celular (coluna única, fontes grandes).
+- Layout em coluna única com fontes grandes (mobile-first).
 
 #### Regras de Negócio — Módulo 2
 
 - Considera apenas pedidos com status `fechado`.
 - O painel é somente leitura — nenhuma ação é realizada a partir dele.
 - Os dados são carregados a cada acesso (sem polling automático na V1).
+- Acesso restrito a usuários com `role = 'dono'`.
 
 ---
 
@@ -130,38 +186,65 @@ Repositório: GitHub
 
 **Objetivo:** Registro e monitoramento manual dos insumos para evitar falta de produtos.
 
+> **Modelo mental de estoque:** somente itens fechados/não abertos são contabilizados. Um pacote aberto em uso não entra na contagem.
+
 #### Telas
 
-##### 3.3.1 Lista de Insumos (`/estoque`)
+##### 4.3.1 Lista de Insumos (`/estoque`)
 
-- Listagem de todos os insumos com: nome, quantidade atual, unidade (kg, un, L, etc.), quantidade mínima.
-- Itens **abaixo do mínimo** são destacados visualmente (fundo vermelho claro / ícone de alerta).
+- Listagem de todos os insumos com: nome, quantidade atual, unidade (kg, un, L, etc.), quantidade mínima, indicador de perecível.
+- Itens **abaixo do mínimo** (não perecíveis) são destacados visualmente (fundo vermelho claro / ícone de alerta).
+- Itens perecíveis não exibem alerta de mínimo.
 - Botão **"+ Novo Insumo"**.
-- Cada linha tem acesso rápido para **Baixa Rápida** e **Editar**.
+- Cada card tem acesso rápido para **Baixa Rápida**, **Baixa por Deterioração** (apenas perecíveis) e **Editar**.
 
-##### 3.3.2 Cadastro/Edição de Insumo (`/estoque/[id]`)
+##### 4.3.2 Cadastro/Edição de Insumo (`/estoque/[id]`)
 
-- Campos: Nome, Quantidade Atual, Unidade, Quantidade Mínima.
+- Campos: Nome, Quantidade Atual, Unidade, Quantidade Mínima, Perecível (toggle).
 - Salvar ou Excluir insumo.
 
-##### 3.3.3 Registrar Baixa Manual
+##### 4.3.3 Registrar Ajuste de Estoque
 
-- Modal ou seção inline: campo numérico para inserir a quantidade a debitar.
+- Modal ou seção inline com campo numérico para a quantidade.
+- Seleção do motivo do ajuste: **Consumo**, **Deterioração** (apenas perecíveis), **Reposição**.
 - Confirmação com preview do novo saldo.
-- Opção de adicionar (reposição de estoque) ou subtrair (baixa/consumo).
 
 #### Regras de Negócio — Módulo 3
 
 - Quantidade nunca pode ficar negativa (validação no servidor).
-- O alerta de mínimo é exibido quando `quantity <= min_quantity`.
+- O alerta de mínimo é exibido quando `quantity <= min_quantity` **somente para itens não perecíveis** (`is_perishable = false`).
+- Para itens perecíveis, `min_quantity` é ignorado e nenhum alerta é exibido.
 - Não há integração automática com pedidos nesta versão (baixa sempre manual).
 - A unidade de medida é um campo de texto livre (sem conversão entre unidades).
+- Todo ajuste de estoque registra o motivo: `consumo`, `deterioracao` ou `reposicao`.
+- Itens perecíveis possuem uma ação específica de "Baixa por Deterioração" além da baixa normal de consumo.
 
 ---
 
-## 4. Modelo de Dados
+## 5. Modelo de Dados
 
-### 4.1 Tabela `products`
+### 5.1 Tabela `profiles`
+
+```sql
+CREATE TABLE profiles (
+  id         UUID PRIMARY KEY REFERENCES auth.users(id),
+  name       VARCHAR(100) NOT NULL,
+  role       VARCHAR(20) NOT NULL DEFAULT 'funcionario'
+             CHECK (role IN ('funcionario', 'dono')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+| Campo | Tipo | Descrição |
+|---|---|---|
+| `id` | UUID | Mesmo ID do usuário em `auth.users` |
+| `name` | VARCHAR(100) | Nome de exibição do usuário |
+| `role` | VARCHAR(20) | `funcionario` ou `dono` |
+| `created_at` | TIMESTAMPTZ | Data de cadastro |
+
+---
+
+### 5.2 Tabela `products`
 
 ```sql
 CREATE TABLE products (
@@ -179,18 +262,18 @@ CREATE TABLE products (
 | `id` | UUID | Identificador único |
 | `name` | VARCHAR(100) | Nome do produto exibido no cardápio |
 | `price` | NUMERIC(10,2) | Preço de venda atual |
-| `category` | VARCHAR(50) | Agrupamento no cardápio (ex: "Lanches", "Bebidas") |
+| `category` | VARCHAR(50) | Agrupamento no cardápio (ex: "Lanches", "Bebidas") — texto livre |
 | `active` | BOOLEAN | Se `false`, não aparece no cardápio mas histórico é preservado |
 | `created_at` | TIMESTAMPTZ | Data de cadastro |
 
 ---
 
-### 4.2 Tabela `orders`
+### 5.3 Tabela `orders`
 
 ```sql
 CREATE TABLE orders (
   id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  type           VARCHAR(10) NOT NULL CHECK (type IN ('balcao', 'delivery')),
+  type           VARCHAR(10) NOT NULL CHECK (type IN ('delivery', 'retirada', 'local')),
   status         VARCHAR(15) NOT NULL DEFAULT 'aberto'
                    CHECK (status IN ('aberto', 'em_preparo', 'fechado', 'cancelado')),
   payment_method VARCHAR(10) CHECK (payment_method IN ('dinheiro', 'pix', 'cartao')),
@@ -204,7 +287,7 @@ CREATE TABLE orders (
 | Campo | Tipo | Descrição |
 |---|---|---|
 | `id` | UUID | Identificador único |
-| `type` | VARCHAR(10) | `balcao` ou `delivery` |
+| `type` | VARCHAR(10) | `delivery`, `retirada` ou `local` |
 | `status` | VARCHAR(15) | `aberto`, `em_preparo`, `fechado`, `cancelado` |
 | `payment_method` | VARCHAR(10) | Obrigatório ao fechar; `dinheiro`, `pix` ou `cartao` |
 | `customer_name` | VARCHAR(100) | Nome do cliente (opcional, mais usado no delivery) |
@@ -212,17 +295,23 @@ CREATE TABLE orders (
 | `created_at` | TIMESTAMPTZ | Abertura do pedido |
 | `closed_at` | TIMESTAMPTZ | Momento do fechamento (NULL enquanto aberto) |
 
+**Tipos de atendimento:**
+- `delivery` — pedido remoto entregue no endereço do cliente.
+- `retirada` — cliente pede no balcão e leva embora.
+- `local` — cliente pede no balcão e consome no espaço físico.
+
 ---
 
-### 4.3 Tabela `order_items`
+### 5.4 Tabela `order_items`
 
 ```sql
 CREATE TABLE order_items (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  order_id    UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-  product_id  UUID NOT NULL REFERENCES products(id),
-  quantity    INTEGER NOT NULL CHECK (quantity > 0),
-  unit_price  NUMERIC(10, 2) NOT NULL CHECK (unit_price >= 0)
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id     UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  product_id   UUID NOT NULL REFERENCES products(id),
+  quantity     INTEGER NOT NULL CHECK (quantity > 0),
+  unit_price   NUMERIC(10, 2) NOT NULL CHECK (unit_price >= 0),
+  observations TEXT
 );
 ```
 
@@ -233,20 +322,22 @@ CREATE TABLE order_items (
 | `product_id` | UUID | Referência ao produto (preserva histórico) |
 | `quantity` | INTEGER | Quantidade pedida |
 | `unit_price` | NUMERIC(10,2) | Preço no momento do pedido (snapshot) |
+| `observations` | TEXT | Observações do cliente para o item (nullable; ex: "sem alface", "bem passado") |
 
 ---
 
-### 4.4 Tabela `stock_items`
+### 5.5 Tabela `stock_items`
 
 ```sql
 CREATE TABLE stock_items (
-  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name         VARCHAR(100) NOT NULL UNIQUE,
-  quantity     NUMERIC(10, 3) NOT NULL DEFAULT 0 CHECK (quantity >= 0),
-  unit         VARCHAR(20) NOT NULL DEFAULT 'un',
-  min_quantity NUMERIC(10, 3) NOT NULL DEFAULT 0 CHECK (min_quantity >= 0),
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name           VARCHAR(100) NOT NULL UNIQUE,
+  quantity       NUMERIC(10, 3) NOT NULL DEFAULT 0 CHECK (quantity >= 0),
+  unit           VARCHAR(20) NOT NULL DEFAULT 'un',
+  min_quantity   NUMERIC(10, 3) NOT NULL DEFAULT 0 CHECK (min_quantity >= 0),
+  is_perishable  BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 ```
 
@@ -254,25 +345,51 @@ CREATE TABLE stock_items (
 |---|---|---|
 | `id` | UUID | Identificador único |
 | `name` | VARCHAR(100) | Nome do insumo (ex: "Pão de hambúrguer") |
-| `quantity` | NUMERIC(10,3) | Estoque atual |
+| `quantity` | NUMERIC(10,3) | Estoque atual (somente itens fechados/não abertos) |
 | `unit` | VARCHAR(20) | Unidade de medida (ex: `kg`, `un`, `L`, `cx`) |
-| `min_quantity` | NUMERIC(10,3) | Quantidade mínima para alerta |
+| `min_quantity` | NUMERIC(10,3) | Quantidade mínima para alerta (ignorado se `is_perishable = true`) |
+| `is_perishable` | BOOLEAN | Se `true`, item é perecível — alerta de mínimo desativado |
 | `created_at` | TIMESTAMPTZ | Data de cadastro |
 | `updated_at` | TIMESTAMPTZ | Última atualização (via trigger ou app) |
 
 ---
 
-### 4.5 Relacionamentos
+### 5.6 Tabela `stock_adjustments`
+
+```sql
+CREATE TABLE stock_adjustments (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  stock_item_id UUID NOT NULL REFERENCES stock_items(id) ON DELETE CASCADE,
+  delta         NUMERIC(10, 3) NOT NULL,
+  reason        VARCHAR(20) NOT NULL CHECK (reason IN ('consumo', 'deterioracao', 'reposicao')),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+| Campo | Tipo | Descrição |
+|---|---|---|
+| `id` | UUID | Identificador único |
+| `stock_item_id` | UUID | Referência ao insumo |
+| `delta` | NUMERIC(10,3) | Variação de quantidade (positivo = entrada, negativo = saída) |
+| `reason` | VARCHAR(20) | Motivo: `consumo`, `deterioracao` ou `reposicao` |
+| `created_at` | TIMESTAMPTZ | Data do ajuste |
+
+---
+
+### 5.7 Relacionamentos
 
 ```
+profiles ──── auth.users (1:1, mesmo id)
+
 products ───< order_items >─── orders
                   │
-              (unit_price capturado no momento do pedido)
+              (unit_price e observations capturados no momento do pedido)
 
-stock_items  (independente — sem FK para orders nesta versão)
+stock_items ───< stock_adjustments
+              (independente — sem FK para orders nesta versão)
 ```
 
-### 4.6 Índices Recomendados
+### 5.8 Índices Recomendados
 
 ```sql
 -- Consultas de pedidos por data (painel do dia)
@@ -284,14 +401,17 @@ CREATE INDEX idx_order_items_order_id ON order_items (order_id);
 
 -- Produtos ativos no cardápio
 CREATE INDEX idx_products_active ON products (active);
+
+-- Ajustes por insumo
+CREATE INDEX idx_stock_adjustments_item ON stock_adjustments (stock_item_id);
 ```
 
 ---
 
-## 5. Estrutura de Pastas do Projeto
+## 6. Estrutura de Pastas do Projeto
 
 ```
-LanchoneteSaaS/
+SistemasjB/
 ├── app/                          # Next.js App Router
 │   ├── layout.tsx                # Layout raiz (providers, nav)
 │   ├── page.tsx                  # Redireciona para /pedidos
@@ -299,7 +419,7 @@ LanchoneteSaaS/
 │   │   └── login/
 │   │       └── page.tsx          # Página de login
 │   ├── (app)/                    # Grupo de rotas autenticadas
-│   │   ├── layout.tsx            # Sidebar/navbar + auth guard
+│   │   ├── layout.tsx            # Bottom nav + auth guard + role check
 │   │   ├── pedidos/
 │   │   │   ├── page.tsx          # Lista de pedidos do dia
 │   │   │   ├── novo/
@@ -307,19 +427,21 @@ LanchoneteSaaS/
 │   │   │   └── [id]/
 │   │   │       └── page.tsx      # Editar / visualizar pedido
 │   │   ├── painel/
-│   │   │   └── page.tsx          # Painel do dia (gerencial)
+│   │   │   └── page.tsx          # Painel do dia (apenas donos)
 │   │   ├── estoque/
 │   │   │   ├── page.tsx          # Lista de insumos
 │   │   │   ├── novo/
 │   │   │   │   └── page.tsx      # Cadastrar insumo
 │   │   │   └── [id]/
-│   │   │       └── page.tsx      # Editar insumo / registrar baixa
-│   │   └── cardapio/
-│   │       ├── page.tsx          # Lista de produtos (admin)
-│   │       ├── novo/
-│   │       │   └── page.tsx      # Cadastrar produto
-│   │       └── [id]/
-│   │           └── page.tsx      # Editar produto
+│   │   │       └── page.tsx      # Editar insumo / registrar ajuste
+│   │   ├── cardapio/
+│   │   │   ├── page.tsx          # Lista de produtos
+│   │   │   ├── novo/
+│   │   │   │   └── page.tsx      # Cadastrar produto (apenas donos)
+│   │   │   └── [id]/
+│   │   │       └── page.tsx      # Editar produto (apenas donos)
+│   │   └── usuarios/
+│   │       └── page.tsx          # Gestão de usuários (apenas donos)
 │   └── api/
 │       ├── orders/
 │       │   ├── route.ts          # GET (listar) / POST (criar)
@@ -336,7 +458,7 @@ LanchoneteSaaS/
 │       │   └── [id]/
 │       │       ├── route.ts      # GET / PATCH / DELETE
 │       │       └── adjust/
-│       │           └── route.ts  # POST — baixa ou reposição
+│       │           └── route.ts  # POST — ajuste com motivo
 │       └── dashboard/
 │           └── route.ts          # GET — dados do painel do dia
 ├── components/
@@ -345,28 +467,30 @@ LanchoneteSaaS/
 │   │   ├── OrderCard.tsx
 │   │   ├── OrderForm.tsx
 │   │   ├── ProductGrid.tsx
+│   │   ├── OrderItemRow.tsx      # Item com campo de observações
 │   │   └── PaymentSelector.tsx
 │   ├── dashboard/
 │   │   ├── SummaryCard.tsx
 │   │   ├── PaymentBreakdown.tsx
 │   │   └── TopProductsList.tsx
 │   ├── stock/
-│   │   ├── StockItemRow.tsx
+│   │   ├── StockItemCard.tsx
 │   │   └── AdjustStockModal.tsx
 │   └── layout/
-│       ├── Navbar.tsx
-│       └── Sidebar.tsx
+│       └── BottomNav.tsx         # Menu de navegação inferior fixo
 ├── lib/
 │   ├── supabase/
 │   │   ├── client.ts             # Cliente Supabase para o browser
 │   │   └── server.ts             # Cliente Supabase para Server Components
 │   ├── utils.ts                  # Funções utilitárias (formatação, cálculo)
 │   └── validations.ts            # Schemas Zod para validação de entrada
+├── middleware.ts                  # Auth guard + verificação de role por rota
 ├── types/
-│   └── index.ts                  # Tipos TypeScript (Order, Product, etc.)
+│   └── index.ts                  # Tipos TypeScript (Order, Product, Profile, etc.)
 ├── hooks/                        # Custom React hooks
 │   ├── useOrders.ts
-│   └── useProducts.ts
+│   ├── useProducts.ts
+│   └── useProfile.ts
 ├── public/                       # Assets estáticos
 ├── .env.local                    # Variáveis de ambiente (não commitado)
 ├── .env.example                  # Template de variáveis de ambiente
@@ -379,64 +503,66 @@ LanchoneteSaaS/
 
 ---
 
-## 6. Rotas de Página e de API
+## 7. Rotas de Página e de API
 
-### 6.1 Rotas de Página (`/app`)
+### 7.1 Rotas de Página (`/app`)
 
-| Rota | Componente | Descrição |
+| Rota | Componente | Acesso |
 |---|---|---|
 | `/` | `app/page.tsx` | Redirect para `/pedidos` |
-| `/login` | `app/(auth)/login/page.tsx` | Formulário de login (email + senha) |
-| `/pedidos` | `app/(app)/pedidos/page.tsx` | Lista de pedidos abertos e fechados do dia |
-| `/pedidos/novo` | `app/(app)/pedidos/novo/page.tsx` | Formulário de criação de pedido |
-| `/pedidos/[id]` | `app/(app)/pedidos/[id]/page.tsx` | Edição/visualização de pedido |
-| `/painel` | `app/(app)/painel/page.tsx` | Painel gerencial do dia |
-| `/estoque` | `app/(app)/estoque/page.tsx` | Lista de insumos com alertas |
-| `/estoque/novo` | `app/(app)/estoque/novo/page.tsx` | Cadastro de novo insumo |
-| `/estoque/[id]` | `app/(app)/estoque/[id]/page.tsx` | Edição/baixa de insumo |
-| `/cardapio` | `app/(app)/cardapio/page.tsx` | Gestão do cardápio (produtos) |
-| `/cardapio/novo` | `app/(app)/cardapio/novo/page.tsx` | Cadastro de novo produto |
-| `/cardapio/[id]` | `app/(app)/cardapio/[id]/page.tsx` | Edição de produto |
+| `/login` | `app/(auth)/login/page.tsx` | Público |
+| `/pedidos` | `app/(app)/pedidos/page.tsx` | todos |
+| `/pedidos/novo` | `app/(app)/pedidos/novo/page.tsx` | todos |
+| `/pedidos/[id]` | `app/(app)/pedidos/[id]/page.tsx` | todos |
+| `/painel` | `app/(app)/painel/page.tsx` | somente donos |
+| `/estoque` | `app/(app)/estoque/page.tsx` | todos |
+| `/estoque/novo` | `app/(app)/estoque/novo/page.tsx` | todos |
+| `/estoque/[id]` | `app/(app)/estoque/[id]/page.tsx` | todos |
+| `/cardapio` | `app/(app)/cardapio/page.tsx` | todos (leitura); donos (edição) |
+| `/cardapio/novo` | `app/(app)/cardapio/novo/page.tsx` | somente donos |
+| `/cardapio/[id]` | `app/(app)/cardapio/[id]/page.tsx` | somente donos |
+| `/usuarios` | `app/(app)/usuarios/page.tsx` | somente donos |
 
-### 6.2 Rotas de API (`/api`)
+### 7.2 Rotas de API (`/api`)
 
 | Método | Rota | Descrição |
 |---|---|---|
 | `GET` | `/api/orders` | Lista pedidos; aceita query `?date=YYYY-MM-DD&status=aberto` |
-| `POST` | `/api/orders` | Cria novo pedido (`type`, `customer_name` opcionais) |
+| `POST` | `/api/orders` | Cria novo pedido (`type` obrigatório; `customer_name` opcional) |
 | `GET` | `/api/orders/[id]` | Retorna pedido com seus itens |
 | `PATCH` | `/api/orders/[id]` | Atualiza tipo, nome do cliente ou status (aberto→em_preparo) |
 | `DELETE` | `/api/orders/[id]` | Cancela pedido (status → `cancelado`) |
-| `POST` | `/api/orders/[id]/close` | Fecha pedido: valida itens + pagamento, calcula total, grava `closed_at` |
+| `POST` | `/api/orders/[id]/close` | Fecha pedido: valida atendimento completo + pagamento, calcula total, grava `closed_at` |
 | `GET` | `/api/products` | Lista produtos; aceita query `?active=true` |
-| `POST` | `/api/products` | Cria produto |
+| `POST` | `/api/products` | Cria produto (somente donos) |
 | `GET` | `/api/products/[id]` | Retorna produto |
-| `PATCH` | `/api/products/[id]` | Atualiza nome, preço, categoria ou `active` |
-| `DELETE` | `/api/products/[id]` | Desativa produto (`active = false`, soft delete) |
+| `PATCH` | `/api/products/[id]` | Atualiza nome, preço, categoria ou `active` (somente donos) |
+| `DELETE` | `/api/products/[id]` | Desativa produto (`active = false`, soft delete; somente donos) |
 | `GET` | `/api/stock` | Lista insumos; aceita query `?low=true` para só os abaixo do mínimo |
 | `POST` | `/api/stock` | Cria insumo |
 | `GET` | `/api/stock/[id]` | Retorna insumo |
-| `PATCH` | `/api/stock/[id]` | Atualiza nome, unidade ou quantidade mínima |
+| `PATCH` | `/api/stock/[id]` | Atualiza nome, unidade, quantidade mínima ou `is_perishable` |
 | `DELETE` | `/api/stock/[id]` | Remove insumo |
-| `POST` | `/api/stock/[id]/adjust` | Ajuste de estoque: `{ delta: number }` (positivo=entrada, negativo=baixa) |
+| `POST` | `/api/stock/[id]/adjust` | Ajuste de estoque: `{ delta: number, reason: 'consumo' \| 'deterioracao' \| 'reposicao' }` |
 | `GET` | `/api/dashboard` | Agrega dados do dia: total, contagem, breakdown pagamento, top produtos |
 
 ---
 
-## 7. Fluxo de Uso Real — Do Pedido ao Fechamento
+## 8. Fluxo de Uso Real — Do Pedido ao Fechamento
 
 ```
 1. FUNCIONÁRIO — Tela /pedidos
-   └─► Clica em "+ Novo Pedido"
+   └─► Toca em "+ Novo Pedido"
        └─► Vai para /pedidos/novo
 
 2. FUNCIONÁRIO — Tela /pedidos/novo
-   └─► Seleciona tipo: [Balcão] ou [Delivery]
+   └─► Seleciona tipo: [Delivery] [Retirada] [Local]
        ├─► Se Delivery: digita nome do cliente (opcional)
        └─► Navega pelo cardápio por categoria
            └─► Toca nos produtos para adicionar
-               ├─► O resumo lateral atualiza em tempo real
-               └─► Ajusta quantidades com [+] e [−]
+               ├─► O resumo inferior atualiza em tempo real
+               ├─► Ajusta quantidades com [+] e [−]
+               └─► Adiciona observações por item (opcional)
 
 3. FUNCIONÁRIO — Seleciona pagamento
    └─► Toca em [Dinheiro] [Pix] ou [Cartão]
@@ -445,7 +571,7 @@ LanchoneteSaaS/
 4. FUNCIONÁRIO — Fecha o pedido
    └─► Toca em [Fechar Pedido]
        └─► App chama POST /api/orders/[id]/close
-           ├─► Servidor valida: itens > 0, payment_method presente
+           ├─► Servidor valida: itens > 0, payment_method presente, atendimento completo
            ├─► Calcula total (soma dos itens)
            ├─► Atualiza status → "fechado", grava closed_at
            └─► Retorna sucesso
@@ -461,13 +587,13 @@ LanchoneteSaaS/
 
 ---
 
-## 8. Regras de Negócio
+## 9. Regras de Negócio
 
-### 8.1 Pedidos
+### 9.1 Pedidos
 
 | # | Regra |
 |---|---|
-| RN-01 | Um pedido só pode ser fechado com pelo menos 1 item adicionado. |
+| RN-01 | Um pedido só pode ser fechado quando o cliente for completamente atendido **e** o pagamento for confirmado: ao menos 1 item adicionado e forma de pagamento selecionada. |
 | RN-02 | Um pedido só pode ser fechado com forma de pagamento selecionada. |
 | RN-03 | O `unit_price` de cada item é capturado no momento da criação do item (não rastreia mudanças de preço futuras). |
 | RN-04 | O `total` do pedido é calculado e validado no servidor; o valor calculado no cliente é apenas informativo. |
@@ -475,103 +601,40 @@ LanchoneteSaaS/
 | RN-06 | Pedidos cancelados (`cancelado`) são preservados no banco (soft delete) e excluídos do painel do dia. |
 | RN-07 | O número sequencial do dia (#1, #2…) é exibido ao usuário mas não armazenado; é calculado dinamicamente como `ROW_NUMBER()` ordenado por `created_at` para pedidos não cancelados do dia. |
 
-### 8.2 Produtos
+### 9.2 Produtos
 
 | # | Regra |
 |---|---|
 | RN-08 | Produtos não são excluídos fisicamente para preservar histórico de pedidos; `active = false` os remove do cardápio. |
 | RN-09 | O preço de um produto pode ser alterado a qualquer momento sem afetar pedidos já registrados. |
 
-### 8.3 Estoque
+### 9.3 Estoque
 
 | # | Regra |
 |---|---|
 | RN-10 | A quantidade de um insumo não pode ficar abaixo de `0` (validação no servidor). |
-| RN-11 | Um insumo é considerado em alerta quando `quantity <= min_quantity`. |
+| RN-11 | Um insumo não perecível é considerado em alerta quando `quantity <= min_quantity`. |
 | RN-12 | Não há baixa automática de estoque ao fechar um pedido nesta versão. |
-| RN-13 | Ajustes de estoque são registrados com `delta` positivo (entrada) ou negativo (saída). |
+| RN-13 | Ajustes de estoque são registrados com `delta` e `reason` obrigatórios. |
+| RN-19 | Itens perecíveis (`is_perishable = true`) não exibem alerta de estoque mínimo; `min_quantity` é ignorado para eles. |
+| RN-20 | Itens perecíveis possuem a ação "Baixa por Deterioração" (`reason = 'deterioracao'`) além da baixa normal de consumo. |
+| RN-21 | Todo ajuste de estoque registra o motivo: `consumo` (uso normal), `deterioracao` (perda por perecimento) ou `reposicao` (entrada de mercadoria). |
 
-### 8.4 Autenticação e Autorização
+### 9.4 Autenticação e Autorização
 
 | # | Regra |
 |---|---|
 | RN-14 | Todas as rotas do grupo `(app)` requerem sessão autenticada. |
-| RN-15 | Não há diferenciação de perfil entre "funcionário" e "dono" na V1 — todos os usuários autenticados têm acesso a todas as telas. |
+| RN-15 | Existem dois perfis de usuário: `funcionario` e `dono`. O perfil é armazenado na tabela `profiles` e verificado pelo middleware Next.js antes de renderizar rotas protegidas. |
 | RN-16 | A sessão é gerenciada pelo Supabase Auth com cookies seguros (middleware Next.js). |
+| RN-17 | Perfil `funcionario`: acesso a `/pedidos`, `/cardapio` (somente leitura) e `/estoque`. Acesso negado a `/painel`, `/usuarios` e edição do cardápio. |
+| RN-18 | Perfil `dono`: acesso completo a todas as rotas, incluindo `/painel`, `/cardapio` com edição e `/usuarios`. Tentativa de acesso não autorizado por funcionário redireciona para `/pedidos` com toast de erro. |
 
 ---
 
-## 9. Ordem de Implementação
+## 10. Estrutura de Pastas do Projeto
 
-A seguinte sequência respeita as dependências entre as partes e garante que o sistema seja utilizável o mais cedo possível.
-
-```
-Fase 0 — Infraestrutura (pré-requisito de tudo)
-  1. [ ] Criar projeto Next.js + TypeScript
-  2. [ ] Configurar Tailwind CSS + shadcn/ui
-  3. [ ] Criar projeto no Supabase + obter credenciais
-  4. [ ] Configurar variáveis de ambiente (.env.local)
-  5. [ ] Instalar e configurar cliente Supabase (client.ts + server.ts)
-  6. [ ] Configurar middleware de autenticação (auth guard para rotas /app)
-  7. [ ] Implementar tela de login (/login)
-
-Fase 1 — Dados base (pré-requisito do Módulo 1)
-  8. [ ] Criar tabelas no Supabase: products, orders, order_items
-  9. [ ] Definir tipos TypeScript (types/index.ts)
-  10. [ ] Implementar API de produtos (GET /api/products)
-  11. [ ] Implementar tela de cardápio (/cardapio, /cardapio/novo, /cardapio/[id])
-  12. [ ] Popular cardápio com produtos reais
-
-Fase 2 — Módulo 1: Registro de Pedidos ⭐
-  13. [ ] Implementar POST /api/orders (criar pedido)
-  14. [ ] Implementar GET /api/orders (listar pedidos do dia)
-  15. [ ] Implementar tela /pedidos (lista)
-  16. [ ] Implementar componente ProductGrid
-  17. [ ] Implementar tela /pedidos/novo (criação com seleção de produtos)
-  18. [ ] Implementar POST /api/orders/[id]/close (fechar pedido)
-  19. [ ] Implementar PATCH /api/orders/[id] e DELETE (cancelar)
-  20. [ ] Implementar tela /pedidos/[id] (edição)
-  21. [ ] Testes manuais do fluxo completo de pedido
-
-Fase 3 — Módulo 2: Painel do Dia
-  22. [ ] Implementar GET /api/dashboard (aggregations)
-  23. [ ] Implementar componentes do painel (SummaryCard, PaymentBreakdown, TopProductsList)
-  24. [ ] Implementar tela /painel
-
-Fase 4 — Módulo 3: Estoque
-  25. [ ] Criar tabela stock_items no Supabase
-  26. [ ] Implementar API de estoque (CRUD + /api/stock/[id]/adjust)
-  27. [ ] Implementar tela /estoque (lista com alertas)
-  28. [ ] Implementar tela /estoque/novo e /estoque/[id]
-  29. [ ] Implementar AdjustStockModal
-
-Fase 5 — Polimento e Deploy
-  30. [ ] Revisão de UX: tamanho de botões, feedback visual, toasts
-  31. [ ] Responsividade mobile (painel do dia)
-  32. [ ] Configurar projeto na Vercel + conectar ao GitHub
-  33. [ ] Configurar variáveis de ambiente na Vercel
-  34. [ ] Deploy e testes em produção
-  35. [ ] Onboarding dos usuários (funcionário + donos)
-```
-
----
-
-## 10. Decisões Técnicas Fora do Escopo (V1)
-
-As seguintes funcionalidades foram **conscientemente excluídas** desta versão para manter o escopo focado e o prazo viável.
-
-| Funcionalidade | Motivo da Exclusão |
-|---|---|
-| **Integração fiscal (NF-e / NFC-e)** | Complexidade regulatória alta. Requer certificado digital, integração com SEFAZ e homologação estadual. Escopo futuro separado. |
-| **Modo offline / PWA** | Service Workers e sincronização de dados offline aumentam muito a complexidade. Internet estável está disponível no local de uso. |
-| **Integração com WhatsApp** | APIs do WhatsApp Business têm custo e limitações. O atendimento via WhatsApp continuará manual; o sistema registra o pedido após o recebimento. |
-| **Histórico por cliente / CRM** | A lanchonete não mantém cadastro de clientes. Seria necessário esforço de coleta de dados que não se encaixa no fluxo atual. |
-| **Baixa automática de estoque** | Requer mapeamento de receitas (quais insumos cada produto consome e em que quantidade), o que é trabalhoso de manter. Mantido para versão futura. |
-| **Múltiplos perfis de acesso (RBAC)** | Com 3 usuários conhecidos e confiança mútua, controle granular de permissões é desnecessário na V1. |
-| **Impressão de comanda / cupom** | Requer integração com impressora térmica (driver, SDK) — complexidade de hardware fora do escopo atual. |
-| **Aplicativo mobile nativo** | O acesso via navegador no tablet/celular é suficiente. App nativo (iOS/Android) exigiria publicação em lojas e manutenção adicional. |
-| **Relatórios históricos avançados** | O painel do dia cobre a necessidade imediata. Relatórios de semana/mês/período são escopo de V2. |
-| **Multi-tenant / multi-loja** | Sistema é projetado para uma única lanchonete. Isolamento por tenant exigiria redesenho do modelo de dados. |
+> Já documentado na seção 6.
 
 ---
 
@@ -586,7 +649,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGci...
 SUPABASE_SERVICE_ROLE_KEY=eyJhbGci...  # Apenas para operações server-side privilegiadas
 
 # App
-NEXT_PUBLIC_APP_NAME="LanchoneteSaaS"
+NEXT_PUBLIC_APP_NAME="Sistema São João Batista"
 ```
 
 > ⚠️ **Nunca commitar `.env.local`**. Adicione ao `.gitignore`.
@@ -625,13 +688,101 @@ ORDER BY total_quantidade DESC
 LIMIT 5;
 ```
 
-### Insumos abaixo do mínimo
+### Insumos não perecíveis abaixo do mínimo
 
 ```sql
 SELECT * FROM stock_items
-WHERE quantity <= min_quantity
+WHERE is_perishable = FALSE
+  AND quantity <= min_quantity
 ORDER BY name;
 ```
+
+### Histórico de ajustes de um insumo
+
+```sql
+SELECT sa.created_at, sa.delta, sa.reason
+FROM stock_adjustments sa
+WHERE sa.stock_item_id = '<uuid>'
+ORDER BY sa.created_at DESC;
+```
+
+---
+
+## 13. Ordem de Implementação
+
+A seguinte sequência respeita as dependências entre as partes e garante que o sistema seja utilizável o mais cedo possível.
+
+```
+Fase 0 — Infraestrutura (pré-requisito de tudo)
+  1. [ ] Criar projeto Next.js + TypeScript
+  2. [ ] Configurar Tailwind CSS + shadcn/ui
+  3. [ ] Criar projeto no Supabase + obter credenciais
+  4. [ ] Configurar variáveis de ambiente (.env.local)
+  5. [ ] Instalar e configurar cliente Supabase (client.ts + server.ts)
+  6. [ ] Criar tabela profiles no Supabase
+  7. [ ] Configurar middleware de autenticação com verificação de role por rota
+  8. [ ] Implementar tela de login (/login)
+  9. [ ] Implementar BottomNav com visibilidade condicional por role
+
+Fase 1 — Dados base (pré-requisito do Módulo 0 e 1)
+  10. [ ] Criar tabelas: products, orders, order_items (com campo observations), stock_items (com is_perishable), stock_adjustments (com reason)
+  11. [ ] Definir tipos TypeScript (types/index.ts) incluindo Profile, Order com novos tipos, OrderItem com observations
+  12. [ ] Implementar API de produtos (GET /api/products)
+
+Fase 2 — Módulo 0: Gestão de Cardápio
+  13. [ ] Implementar tela /cardapio (lista com toggle ativo/inativo)
+  14. [ ] Implementar tela /cardapio/novo e /cardapio/[id] (restrito a donos)
+  15. [ ] Popular cardápio com produtos reais
+
+Fase 3 — Módulo 1: Registro de Pedidos ⭐
+  16. [ ] Implementar POST /api/orders (criar pedido com type: delivery | retirada | local)
+  17. [ ] Implementar GET /api/orders (listar pedidos do dia)
+  18. [ ] Implementar tela /pedidos (lista)
+  19. [ ] Implementar componente ProductGrid
+  20. [ ] Implementar OrderItemRow com campo de observações opcional
+  21. [ ] Implementar tela /pedidos/novo (criação com seleção de produtos e observações)
+  22. [ ] Implementar POST /api/orders/[id]/close (fechar pedido com validação completa)
+  23. [ ] Implementar PATCH /api/orders/[id] e DELETE (cancelar)
+  24. [ ] Implementar tela /pedidos/[id] (edição)
+  25. [ ] Testes manuais do fluxo completo de pedido
+
+Fase 4 — Módulo 2: Painel do Dia
+  26. [ ] Implementar GET /api/dashboard (aggregations)
+  27. [ ] Implementar componentes do painel (SummaryCard, PaymentBreakdown, TopProductsList)
+  28. [ ] Implementar tela /painel (com guard de role = 'dono')
+
+Fase 5 — Módulo 3: Estoque
+  29. [ ] Implementar API de estoque (CRUD + /api/stock/[id]/adjust com reason)
+  30. [ ] Implementar tela /estoque (lista com alerta para não perecíveis, badge para perecíveis)
+  31. [ ] Implementar tela /estoque/novo e /estoque/[id] (com toggle is_perishable)
+  32. [ ] Implementar AdjustStockModal com seleção de motivo (consumo / deterioracao / reposicao)
+
+Fase 6 — Polimento e Deploy
+  33. [ ] Revisão de UX mobile: altura de botões (min 56px), cards empilhados, teclado numérico
+  34. [ ] Verificar ausência de tabelas com scroll horizontal — substituir por cards onde necessário
+  35. [ ] Configurar projeto na Vercel + conectar ao GitHub
+  36. [ ] Configurar variáveis de ambiente na Vercel
+  37. [ ] Deploy e testes em produção
+  38. [ ] Onboarding dos usuários (funcionário + donos)
+```
+
+---
+
+## 14. Decisões Técnicas Fora do Escopo (V1)
+
+As seguintes funcionalidades foram **conscientemente excluídas** desta versão para manter o escopo focado e o prazo viável.
+
+| Funcionalidade | Motivo da Exclusão |
+|---|---|
+| **Integração fiscal (NF-e / NFC-e)** | Complexidade regulatória alta. Requer certificado digital, integração com SEFAZ e homologação estadual. Escopo futuro separado. |
+| **Modo offline / PWA** | Service Workers e sincronização de dados offline aumentam muito a complexidade. Internet estável está disponível no local de uso. |
+| **Integração com WhatsApp** | APIs do WhatsApp Business têm custo e limitações. O atendimento via WhatsApp continuará manual; o sistema registra o pedido após o recebimento. |
+| **Histórico por cliente / CRM** | A lanchonete não mantém cadastro de clientes. Seria necessário esforço de coleta de dados que não se encaixa no fluxo atual. |
+| **Baixa automática de estoque** | Requer mapeamento de receitas (quais insumos cada produto consome e em que quantidade), o que é trabalhoso de manter. Mantido para versão futura. |
+| **Impressão de comanda / cupom** | Requer integração com impressora térmica (driver, SDK) — complexidade de hardware fora do escopo atual. |
+| **Aplicativo mobile nativo** | O acesso via navegador no celular é suficiente. App nativo (iOS/Android) exigiria publicação em lojas e manutenção adicional. |
+| **Relatórios históricos avançados** | O painel do dia cobre a necessidade imediata. Relatórios de semana/mês/período são escopo de V2. |
+| **Multi-tenant / multi-loja** | Sistema é projetado para uma única lanchonete. Isolamento por tenant exigiria redesenho do modelo de dados. |
 
 ---
 
